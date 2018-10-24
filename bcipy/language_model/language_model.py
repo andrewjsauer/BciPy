@@ -5,6 +5,8 @@ import time
 import json
 import logging
 import sys
+import math
+from collections import defaultdict
 sys.path.append('.')
 from bcipy.helpers.bci_task_related import alphabet
 from bcipy.language_model.errors import (ConnectionErr, DockerDownError,
@@ -46,7 +48,7 @@ class LangModel:
         self.dport = lmtype.dport
         self.image = lmtype.image
         self.lmtype = lmtype.type
-        self.priors = {}
+        self.priors = defaultdict(list)
         logging.basicConfig(filename=logfile, level=logging.INFO)
         try:
             # remove existing containers
@@ -106,12 +108,18 @@ class LangModel:
             con.stop()
             con.remove()
 
-    def init(self, nbest=1):
+    def init(self, domain='log', nbest=1):
         """
         Initialize the language model (on the server side)
         Input:
             nbest - top N symbols from evidence
+            domain - a string to indicate to domain
+                     of expected output. 
+                    'log' is of the negative log domain
+                    'norm' is of the probabilty domain
         """
+        assert isinstance(domain, str)
+        self.domain = domain
         if self.lmtype == 'oclm':
             try:
                 assert isinstance(nbest, int)
@@ -150,7 +158,7 @@ class LangModel:
             raise StatusCodeError(r.status_code)
         logging.info("\ncleaning history\n")
 
-    def state_update(self, evidence, return_mode='letter'):
+    def state_update(self, evidence, return_mode='letter',):
         """
         Provide a prior distribution of the language model
         in return to the system's decision regarding the
@@ -161,17 +169,20 @@ class LangModel:
         Input:
             evidence - a list of (list of) tuples [[(sym1, prob), (sym2, prob2)]]
             the numbers are assumed to be in the log probabilty domain
-        Output:
-            priors - a json dictionary with character priors
-            word - a json dictionary w word probabilites
-            both in the Negative Log probabilty domain
+            return_mode - 'letter' or 'word' (available
+                          for oclm) strings
         PRELM
         Input:
             decision - a symbol or a string of symbols in encapsulated in a
             list
+            the numbers are assumed to be in the log probabilty domain
+            return_mode - 'letter' or 'word' (available
+                          for oclm) strings
         Output:
-            priors - a json dictionary with the priors
+            priors - a json dictionary with Normalized priors
                      in the Negative Log probabilty domain
+                     (the default is log) or the probability
+                     domain
         """
         # assert the input contains a valid symbol
         if self.lmtype == 'oclm':
@@ -220,19 +231,8 @@ class LangModel:
         if not r.status_code == requests.codes.ok:
             raise StatusCodeError(r.status_code)
         output = r.json()
-        self.priors = {}
-
-        self.priors['letter'] = [
-            [letter.upper(), prob]
-            if letter != '#'
-            else ["_", prob]
-            for (letter, prob) in output['letter']]
-
-        if return_mode != 'letter':
-            assert self.lmtype == 'oclm', "%r is not allowing for non-letters output" % self.lmtype
-            self.priors['word'] = output['word']
-
-        return self.priors
+        
+        return self.__return_priors(output, return_mode)
 
     def _logger(self):
         """
@@ -249,8 +249,16 @@ class LangModel:
     def recent_priors(self, return_mode='letter'):
         """
         Display the priors given the recent decision
+        Input:
+            return_mode - 'letter' or 'word' (available
+                          for oclm) strings
+        Output:
+            priors - a json dictionary with Normalized priors
+                     in the Negative Log probabilty domain
+                     (the default is log) or the probability
+                     domain
         """
-        if not bool(self.priors):
+        if not bool(self.priors[return_mode]):
             try:
                 r = requests.post(
                     'http://' +
@@ -265,7 +273,19 @@ class LangModel:
             if not r.status_code == requests.codes.ok:
                 raise StatusCodeError(r.status_code)
             output = r.json()
-            self.priors = {}
+            return self.__return_priors(output, return_mode)
+        else:
+            return self.priors
+
+    def __return_priors(self, output, return_mode):
+        """
+        A helper function to provide the desired output 
+        depending on the return_mode and the domain
+        of probaiblities requested
+        """
+
+        self.priors = defaultdict(list)
+        if self.domain == 'log':
             self.priors['letter'] = [
                 [letter.upper(), prob]
                 if letter != '#'
@@ -275,4 +295,17 @@ class LangModel:
             if return_mode != 'letter':
                 assert self.lmtype == 'oclm', "%r is not allowing for non-letters output" % self.lmtype
                 self.priors['word'] = output['word']
+        else:
+            self.priors['letter'] = [
+                [letter.upper(), math.e**(-prob)]
+                if letter != '#'
+                else ["_", math.e**(-prob)]
+                for (letter, prob) in output['letter']]
+
+            if return_mode != 'letter':
+                assert self.lmtype == 'oclm', "%r is not allowing for non-letters output" % self.lmtype
+                self.priors['word'] = [
+                [word, math.e**(-prob)]
+                for (word, prob) in output['word']]
+
         return self.priors

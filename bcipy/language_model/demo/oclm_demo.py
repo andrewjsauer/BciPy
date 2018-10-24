@@ -11,7 +11,9 @@ def main():
     """Runs the demo"""
     # init LM
     nbest = 3
-    lmodel.init(nbest)
+    domain = 'norm'
+    domain = 'log'
+    lmodel.init(domain, nbest)
     return_mode = 'letter'
     print("\nCharacter distribution of no history\n")
     print(lmodel.recent_priors(return_mode))
@@ -38,7 +40,7 @@ def main():
     # check for possible words
     print("\nCharacter and Word distributions of history of 'THO' (what word are we in the middle of typing)\n")
     return_mode = 'word'
-    priors = lmodel.state_update(evidence, return_mode)
+    priors = lmodel.state_update(evidence, return_mode=return_mode)
     print(lmodel.recent_priors(return_mode))
     lmodel.reset()
     print("\n--------------RESET-------------\n")
@@ -49,7 +51,7 @@ def main():
     print("\nEvidence for 'YO'\n")  # a likelihood domain (the higher the more likely)
     print(evidence)
     return_mode = 'word'
-    priors = lmodel.state_update(evidence, return_mode)
+    priors = lmodel.state_update(evidence, return_mode=return_mode)
     print("\nCharacter and Word distributions of 'YO' to follow it, and word to autocomplete\n")
     print(priors) # a negative likelihood domain (the lower the more likely)
 

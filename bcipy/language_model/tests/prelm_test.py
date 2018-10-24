@@ -31,7 +31,7 @@ class TestPreLM(unittest.TestCase):
         # init LMWrapper
         lmodel = LangModel(lm, logfile="lmwrap.log")
         # init LM
-        lmodel.init()
+        lmodel.init(domain='log')
         # get priors
         priors = lmodel.state_update(['T'])
         # display priors
